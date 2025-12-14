@@ -1,0 +1,4 @@
+[toolchain]
+channel = "nightly-2025-12-06" # Pick a specific date.
+components = ["rustc-dev", "llvm-tools-preview"]
+# "rustc-dev" contains the libraries (libs) for the compiler internals.
