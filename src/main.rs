@@ -108,6 +108,27 @@ impl<'tcx> Analysis<'tcx> for AncestryAnalysis {
         _location: Location,
     ) {
         if let StatementKind::Assign(box (place, rvalue)) = &statement.kind {
+            // Helper function to implement the recursive revocation.
+            // we don't revoke the local itself, only its children!
+            fn revoke_recursive(local: Local, state: &mut AncestryState) {
+                // If already revoked, we don't need to do anything.
+                if state.revoked.contains(local) {
+                    return;
+                }
+                // Mark this local as revoked.
+                //state.revoked.insert(local);
+
+                // Recursively revoke all of its children.
+                if let Some(children) = state.all_children.get(local).cloned() {
+                    for child in children.iter() {
+                        state.revoked.insert(child);
+                        revoke_recursive(child, state);
+                    }
+                }
+            }
+
+
+
             // We only care if we are assigning to a Local (ignoring projections for simplicity)
             if let Some(dest_local) = place.as_local() {
                 let mut new_ancestors = MixedBitSet::new_empty(state.ancestry.len());
@@ -153,10 +174,14 @@ impl<'tcx> Analysis<'tcx> for AncestryAnalysis {
 
                         // but another case is when borrowed_place is a deref 
                         // dest = &mut *source;
+                        // note that for this case, it counts as a 'use' of the 
                         else if let [ProjectionElem::Deref] = borrowed_place.projection.as_slice() {
                             let target_local = borrowed_place.local;
                             add_source(target_local);
                             add_child(target_local);
+
+                            // we revoke the target_local
+                            revoke_recursive(target_local, state);
                         }
                     },
                     // Case: `dest = *mut source;`
@@ -181,28 +206,7 @@ impl<'tcx> Analysis<'tcx> for AncestryAnalysis {
                 
             };
 
-
-            // Helper function to implement the recursive revocation.
-            // we don't revoke the local itself, only its children!
-            fn revoke_recursive(local: Local, state: &mut AncestryState) {
-                // If already revoked, we don't need to do anything.
-                if state.revoked.contains(local) {
-                    return;
-                }
-                // Mark this local as revoked.
-                //state.revoked.insert(local);
-
-                // Recursively revoke all of its children.
-                if let Some(children) = state.all_children.get(local).cloned() {
-                    for child in children.iter() {
-                        state.revoked.insert(child);
-                        revoke_recursive(child, state);
-                    }
-                }
-            }
-
-                // Perform revocation for the destination local
-
+            // Perform revocation for the destination local
             if place.projection.first() == Some(&ProjectionElem::Deref) {
                 // 2. Look up the type of the local variable (_1)
                 let local_index = place.local;
@@ -397,7 +401,7 @@ fn run_my_pointer_analysis<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>) {
             }
 
             // We simply print the statements here for demonstration
-            println!("  Statement in {:?} at BB{:?}: {:?}", statement.source_info.span, bb, statement);
+            //println!("  Statement in {:?} at BB{:?}: {:?}", statement.source_info.span, bb, statement);
         }
     }
 }
